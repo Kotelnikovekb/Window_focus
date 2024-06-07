@@ -26,7 +26,7 @@ class _MyAppState extends State<MyApp> {
 
     _windowFocusPlugin.addFocusChangeListener((p0) {
       setState(() {
-        activeWindowTitle='${p0.windowTitle}';
+        activeWindowTitle='${p0.appName}';
       });
     });
     _windowFocusPlugin.addUserActiveListener((p0) {

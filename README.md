@@ -1,4 +1,4 @@
-# window_focus
+# Window focus plugin
 
 A new Flutter project.
 

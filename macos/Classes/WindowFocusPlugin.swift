@@ -105,7 +105,7 @@ class WindowFocusObserver {
 public class IdleTracker: NSObject {
     private var lastActivityTime: Date = Date()
     private var timer: Timer?
-    public var idleThreshold: TimeInterval = 5 // Default to 5 seconds
+    public var idleThreshold: TimeInterval = 5
     private let channel: FlutterMethodChannel
 
     init(channel: FlutterMethodChannel) {
