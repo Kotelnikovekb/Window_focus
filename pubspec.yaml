@@ -1,7 +1,7 @@
 name: window_focus
 description: "A new Flutter project."
-version: 0.0.1
-homepage:
+version: 1.0.0
+homepage: https://github.com/Kotelnikovekb/Window_focus
 
 environment:
   sdk: '>=3.3.4 <4.0.0'
