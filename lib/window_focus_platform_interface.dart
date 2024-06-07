@@ -29,7 +29,22 @@ abstract class WindowFocusPlatform extends PlatformInterface {
   }
   void removeFocusChangeListener(Function(AppWindowDto) listener){
     throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+  void setIdleThreshold(Duration duration){
+    throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+  bool get isUserActive{
+    throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+  Future<Duration> get idleThreshold{
+    throw UnimplementedError('platformVersion() has not been implemented.');
+  }
 
+  void addUserActiveListener(Function(bool) listener){
+    throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+  void removeUserActiveListener(Function(bool) listener){
+    throw UnimplementedError('platformVersion() has not been implemented.');
   }
 
 }
