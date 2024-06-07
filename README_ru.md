@@ -1,5 +1,13 @@
 # Window focus plugin
 
+## Language Versions
+
+- [English](README.md)
+- [Русский](README_ru.md)
+
+![Пример использования](image/screenshot.png)
+
+
 Window focus - это удобный плагин для Flutter, который позволяет отслеживать бездействие пользователя и получать информацию о заголовке активного окна на  Mac OS и Windows.
 
 ## Основные функции:

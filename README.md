@@ -1,5 +1,10 @@
 # Window focus plugin
 
+## Language Versions
+
+- [English](README.md)
+- [Русский](README_ru.md)
+
 A new Flutter project.
 
 ## Getting Started
