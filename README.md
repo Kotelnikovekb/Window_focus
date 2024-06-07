@@ -7,6 +7,8 @@
 
 ![Usage_example](image/screenshot.png)
 
+[![Pub](https://img.shields.io/pub/v/window_focus)](https://pub.dev/packages/window_focus)
+
 Window Focus is a convenient plugin for Flutter that allows you to track user inactivity and obtain information about the title of the active window on Mac OS and Windows.
 
 ## Key Features:
