@@ -20,7 +20,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   String activeWindowTitle = 'Unknown';
   bool userIdle = false;
-  final _windowFocusPlugin = WindowFocus(debug: false,duration: const Duration(seconds: 5));
+  final _windowFocusPlugin = WindowFocus(debug: true,duration: const Duration(seconds: 5));
   final _messangerKey = GlobalKey<ScaffoldMessengerState>();
   DateTime? lastUpdateTime;
   final textController=TextEditingController();
@@ -36,10 +36,10 @@ class _MyAppState extends State<MyApp> {
     super.initState();
 
     _windowFocusPlugin.addFocusChangeListener((p0) {
-      print(p0);
       _handleFocusChange(p0.appName);
     });
     _windowFocusPlugin.addUserActiveListener((p0) {
+      print('>>>>${p0}');
       setState(() {
         userIdle = p0;
       });

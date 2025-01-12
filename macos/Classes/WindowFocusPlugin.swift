@@ -36,16 +36,29 @@ public class WindowFocusPlugin: NSObject, FlutterPlugin {
     case "getPlatformVersion":
       result("macOS " + ProcessInfo.processInfo.operatingSystemVersionString)
       break
-      case "setIdleThreshold":
+      case "setInactivityTimeOut":
         if let args = call.arguments as? [String: Any],
-           let threshold = args["threshold"] as? TimeInterval {
-            idleTracker?.setIdleThreshold(threshold)
-        }
-        result(nil)
+                   let threshold = args["inactivityTimeOut"] as? TimeInterval {
+                    idleTracker?.setIdleThreshold(threshold / 1000.0)
+                    result(nil)
+                } else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "Expected 'inactivityTimeOut' parameter", details: nil))
+                }
         break;
-        case "getIdleThreshold":
-            result(idleTracker?.idleThreshold)
-            break;
+    case "getIdleThreshold":
+        if let threshold = idleTracker?.idleThreshold {
+            result(Int(threshold * 1000))
+        } else {
+            result(0)
+        }
+    case "setDebugMode":
+        if let args = call.arguments as? [String: Any],
+           let debug = args["debug"] as? Bool {
+            idleTracker?.setDebugMode(debug)
+            result(nil)
+        } else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "Expected 'debug' parameter", details: nil))
+        }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -77,7 +90,6 @@ class WindowFocusObserver {
                 if pid != focusedAppPID {
                     focusedAppPID = pid
                     let message = "\(application.localizedName ?? "Unknown")"
-                    print(message)
                     sendMessage(message)
                 }
             }
@@ -107,6 +119,9 @@ public class IdleTracker: NSObject {
     private var timer: Timer?
     public var idleThreshold: TimeInterval = 5
     private let channel: FlutterMethodChannel
+    private var debugMode: Bool = false
+    private var userIsActive: Bool = true
+
 
     init(channel: FlutterMethodChannel) {
         self.channel = channel
@@ -115,37 +130,77 @@ public class IdleTracker: NSObject {
     }
 
     private func startTracking() {
-        let idleThreshold = UserDefaults.standard.double(forKey: "idleThreshold")
-        print("idleThreshold: \(idleThreshold)")
-        if(idleThreshold > 0) {
-            self.idleThreshold = idleThreshold
+        // Загружаем сохраненный idleThreshold из UserDefaults, если он есть
+        if let savedThreshold = UserDefaults.standard.object(forKey: "idleThreshold") as? TimeInterval {
+            idleThreshold = savedThreshold
         }
 
+        if debugMode {
+            print("Debug: Started tracking with idleThreshold = \(idleThreshold)")
+        }
+
+        // Отслеживание взаимодействий пользователя
         NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .keyDown]) { [weak self] event in
-            self?.userDidInteract()
+            if let self = self {
+                if self.debugMode {
+                    print("Debug: User interaction detected: \(event)")
+                }
+                self.userDidInteract()
+            }
         }
 
+        // Запуск таймера для проверки времени бездействия
         timer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: #selector(checkIdleTime), userInfo: nil, repeats: true)
     }
 
     @objc private func checkIdleTime() {
-        let idleTime = Date().timeIntervalSince(lastActivityTime)
-        if idleTime > idleThreshold {
-            channel.invokeMethod("onUserActiveChange", arguments: false)
-        } else {
-            channel.invokeMethod("onUserActiveChange", arguments: true)
-        }
-    }
+            let idleTime = Date().timeIntervalSince(lastActivityTime)
 
+            // Если пользователь превысил таймаут бездействия
+            if idleTime > idleThreshold {
+                if userIsActive {
+                    userIsActive = false
+                    if debugMode {
+                        print("Debug: User became inactive. Idle time = \(idleTime)")
+                    }
+                    channel.invokeMethod("onUserInactivity", arguments: nil)
+                }
+            } else {
+                // Если пользователь вновь стал активным
+                if !userIsActive {
+                    userIsActive = true
+                    if debugMode {
+                        print("Debug: User became active. Idle time reset.")
+                    }
+                    channel.invokeMethod("onUserActive", arguments: nil)
+                }
+            }
+        }
     private func userDidInteract() {
         lastActivityTime = Date()
+        if !userIsActive {
+                    userIsActive = true
+                    if debugMode {
+                        print("Debug: User became active due to interaction.")
+                    }
+                    channel.invokeMethod("onUserActive", arguments: nil)
+                }
     }
 
     func setIdleThreshold(_ threshold: TimeInterval) {
         self.idleThreshold = threshold
         UserDefaults.standard.set(threshold, forKey: "idleThreshold")
+        if debugMode {
+                    print("Debug: Updated idleThreshold to \(threshold)")
+                }
     }
 
+    func setDebugMode(_ debug: Bool) {
+        self.debugMode = debug
+        if debugMode {
+            print("Debug: Debug mode enabled")
+        }
+    }
     deinit {
         timer?.invalidate()
     }

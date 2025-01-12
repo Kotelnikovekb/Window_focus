@@ -101,7 +101,6 @@ class WindowFocus{
   /// await _windowFocus.setIdleThreshold(Duration(seconds: 10));
   /// ```
   Future<void> setIdleThreshold({required Duration duration}) async {
-    print(duration.inMilliseconds);
     await _channel.invokeMethod('setInactivityTimeOut',  {
       'inactivityTimeOut': duration.inMilliseconds,
     });
