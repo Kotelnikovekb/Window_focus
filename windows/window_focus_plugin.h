@@ -4,36 +4,56 @@
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 
+#include <chrono>
 #include <memory>
+#include <windows.h>
 
 namespace window_focus {
 
 class WindowFocusPlugin : public flutter::Plugin {
  public:
-  static void RegisterWithRegistrar(flutter::PluginRegistrarWindows *registrar);
-  void SetMethodChannel(std::shared_ptr<flutter::MethodChannel<flutter::EncodableValue>> method_channel);
+  // Метод для регистрации плагина
+  static void RegisterWithRegistrar(flutter::PluginRegistrarWindows* registrar);
 
+  // Конструктор / деструктор
   WindowFocusPlugin();
-
   virtual ~WindowFocusPlugin();
-
-  // Disallow copy and assign.
-  WindowFocusPlugin(const WindowFocusPlugin&) = delete;
-  WindowFocusPlugin& operator=(const WindowFocusPlugin&) = delete;
-
-  // Called when a method is called on this plugin's channel from Dart.
-  void HandleMethodCall(
-      const flutter::MethodCall<flutter::EncodableValue> &method_call,
+    void HandleMethodCall(
+      const flutter::MethodCall<flutter::EncodableValue>& method_call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
-private:
 
-    std::shared_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel;
-    void CheckForInactivity();
-    void StartFocusListener();
+ private:
+  // == 1) Указатель на «единственный» экземпляр (singleton-like).
+  // Статические хуки будут обращаться к instance_->...
+  static WindowFocusPlugin* instance_;
 
-    //void StartFocusListener(std::make_unique<flutter::MethodChannel<flutter::EncodableValue>> &flutter_channel_);
+  // == 2) Статические хуки и статические переменные-хуки.
+  static HHOOK keyboardHook_;
+  static HHOOK mouseHook_;
+  static LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+  static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam);
+
+  // == 3) Ваши обычные (нестатические) поля
+  std::shared_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel;
+  bool userIsActive_ = true;
+  int inactivityThreshold_ = 1000;
+  bool enableDebug_ = false;
+  std::chrono::steady_clock::time_point lastActivityTime;
+
+  // == 4) Внутренние методы
+  void SetHooks();
+  void RemoveHooks();
+
+  // При вводе с клавиатуры/мыши обновляем время
+  void UpdateLastActivityTime();
+
+  // Пример: метод обработки вызовов из Dart
 
 
+  // Доп. методы: CheckForInactivity(), StartFocusListener() и т.д. по желанию
+
+  void CheckForInactivity();
+  void StartFocusListener();
 };
 
 }  // namespace window_focus

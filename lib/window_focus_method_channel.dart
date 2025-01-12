@@ -1,69 +1,182 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
 import 'package:flutter/services.dart';
-import 'package:window_focus/event_bus.dart';
+import 'domain/domain.dart';
 
-import 'data/app_window_dto.dart';
-import 'window_focus_platform_interface.dart';
 
-class MethodChannelWindowFocus extends WindowFocusPlatform {
-  final _eventBus = EventBus();
-  bool userActive = true;
 
-  MethodChannelWindowFocus() {
-    methodChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onFocusChange') {
-        _eventBus.fireEvent<AppWindowDto>(AppWindowDto(
-            appName: call.arguments['appName'],
-            windowTitle: call.arguments['windowTitle']));
-      } else if (call.method == 'onUserActiveChange') {
-        userActive = call.arguments;
-        _eventBus.fireEvent<bool>(userActive);
-      } else {
-        print(call.method);
-      }
+/// The WindowFocus plugin provides functionality for tracking user activity
+/// and the currently active window on the Windows platform. It is useful for applications
+/// that need to monitor user interaction with the system.
+class WindowFocus{
+  /// Creates an instance of `WindowFocus` for tracking user activity and window focus.
+  ///
+  /// The constructor allows enabling debug mode and setting the user inactivity timeout
+  /// when creating an instance.
+  ///
+  /// - [debug]: If `true`, the plugin will output debug messages to the console.
+  ///   Useful for diagnosing plugin behavior during development.
+  /// - [duration]: The user inactivity timeout after which the plugin sends an event
+  ///   indicating that the user is inactive. Default is 1 second.
+  ///
+  /// Example usage:
+  ///
+  /// Enable debug mode:
+  /// ```dart
+  /// final windowFocus = WindowFocus(debug: true);
+  /// ```
+  ///
+  /// Set a custom inactivity timeout:
+  /// ```dart
+  /// final windowFocus = WindowFocus(duration: Duration(seconds: 30));
+  /// ```
+  ///
+  /// Enable debug mode and set a custom timeout:
+  /// ```dart
+  /// final windowFocus = WindowFocus(
+  ///   debug: true,
+  ///   duration: Duration(seconds: 10),
+  /// );
+  /// ```
+  WindowFocus({bool debug = false,Duration duration=const Duration(seconds: 1)}) {
+    _debug = debug;
+    _channel.setMethodCallHandler(_handleMethodCall);
+    if (_debug) {
+      setDebug(_debug);
+    }
+    setIdleThreshold(duration: duration);
+  }
+
+
+
+
+
+  static const MethodChannel _channel = MethodChannel('expert.kotelnikoff/window_focus');
+  bool _debug = false;
+  bool _userActive = true;
+
+  final _focusChangeController = StreamController<AppWindowDto>.broadcast();
+  final _userActiveController = StreamController<bool>.broadcast();
+
+
+
+  Future<dynamic> _handleMethodCall(MethodCall call) async {
+    switch (call.method) {
+      case 'onFocusChange':
+        final String appName = call.arguments['appName'] ?? '';
+        final String windowTitle = call.arguments['windowTitle'] ?? '';
+        final dto = AppWindowDto(appName: appName, windowTitle: windowTitle);
+        _focusChangeController.add(dto);
+        break;
+      case 'onUserActiveChange':
+        final bool active = call.arguments == true;
+        _userActive = active;
+        _userActiveController.add(_userActive);
+        break;
+      case 'onUserActive':
+        _userActiveController.add(true);
+        break;
+      case 'onUserInactivity':
+        _userActiveController.add(false);
+        break;
+      default:
+        print('Unknown method from native: ${call.method}');
+        break;
+    }
+    return null;
+  }
+
+  bool get isUserActive => _userActive;
+
+  Stream<AppWindowDto> get onFocusChanged => _focusChangeController.stream;
+  Stream<bool> get onUserActiveChanged => _userActiveController.stream;
+
+  /// Sets the user inactivity timeout.
+  ///
+  /// If the user is inactive for the specified duration, the plugin sends an event
+  /// indicating user inactivity.
+  ///
+  /// - [duration]: The time in milliseconds after which the user is considered inactive.
+  ///
+  /// ```dart
+  /// await _windowFocus.setIdleThreshold(Duration(seconds: 10));
+  /// ```
+  Future<void> setIdleThreshold({required Duration duration}) async {
+    print(duration.inMilliseconds);
+    await _channel.invokeMethod('setInactivityTimeOut',  {
+      'inactivityTimeOut': duration.inMilliseconds,
     });
   }
-
-  @visibleForTesting
-  final methodChannel = const MethodChannel('expert.kotelnikoff/window_focus');
-
-
-  @override
-  void addFocusChangeListener(Function(AppWindowDto) listener){
-    _eventBus.addListener(listener);
-  }
-  @override
-  void removeFocusChangeListener(Function(AppWindowDto) listener){
-    _eventBus.removeListener(listener);
-  }
-
-  @override
-  void setIdleThreshold(Duration duration) {
-    methodChannel.invokeMethod('setIdleThreshold', duration.inSeconds);
+  /// Returns the currently set inactivity timeout.
+  ///
+  /// Returns: A `Duration` that specifies the time after which the user is considered inactive.
+  ///
+  /// ```dart
+  /// final timeout = await _windowFocus.getIdleThreshold();
+  /// print('Inactivity timeout: ${timeout.inSeconds} seconds');
+  /// ```
+  Future<Duration> get idleThreshold async {
+    final res = await _channel.invokeMethod<int>('getIdleThreshold');
+    print(res);
+    return Duration(milliseconds: res ?? 60);
   }
 
-  @override
-  bool get isUserActive {
-    return userActive;
+  /// Enables or disables debug mode for the plugin.
+  ///
+  /// When debug mode is enabled, additional logs are printed to the console,
+  /// allowing developers to observe the internal behavior of the plugin, such as
+  /// user activity changes or active window updates.
+  ///
+  /// - [value]: A `bool` that determines whether debug mode is enabled (`true`) or disabled (`false`).
+  ///
+  /// ```dart
+  /// await _windowFocus.setDebug(true);
+  /// print('Debug mode enabled');
+  /// ```
+  Future<void> setDebug(bool value) async {
+    _debug = value;
+    await _channel.invokeMethod('setDebugMode', {
+      'debug': value,
+    });
+  }
+  /// Adds a listener for active window changes.
+  ///
+  /// The callback is triggered whenever the user switches to a different window.
+  ///
+  /// - [listener]: A function that accepts an `AppWindowDto` object, which contains
+  ///   information about the currently active application.
+  ///
+  /// ```dart
+  /// _windowFocus.addFocusChangeListener((appWindow) {
+  ///   print('Active window: ${appWindow.appName}');
+  /// });
+  /// ```
+  StreamSubscription<AppWindowDto> addFocusChangeListener(
+      void Function(AppWindowDto) listener) {
+    return onFocusChanged.listen(listener);
   }
 
-  @override
-  void removeUserActiveListener(Function(bool) listener) {
-    _eventBus.removeListener(listener);
+  /// Adds a listener for user activity changes.
+  ///
+  /// The listener is called when the user becomes active (`true`) or inactive (`false`).
+  ///
+  /// - [listener]: A function that accepts a `bool` indicating the user's activity status.
+  ///
+  /// ```dart
+  /// _windowFocus.addUserActiveListener((isActive) {
+  ///   if (isActive) {
+  ///     print('User is active');
+  ///   } else {
+  ///     print('User is inactive');
+  ///   }
+  /// });
+  /// ```
+  StreamSubscription<bool> addUserActiveListener(
+      void Function(bool) listener) {
+    return onUserActiveChanged.listen(listener);
   }
 
-  @override
-  void addUserActiveListener(Function(bool) listener) {
-    _eventBus.addListener(listener);
-  }
-
-  @override
-  Future<Duration> get idleThreshold async{
-    try{
-      final res=await methodChannel.invokeMethod<int>('getIdleThreshold');
-      return Duration(seconds: res??10);
-    }catch(e){
-      return Duration(seconds: 10);
-    }
+  void dispose() {
+    _focusChangeController.close();
+    _userActiveController.close();
   }
 }

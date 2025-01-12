@@ -28,38 +28,92 @@
 
 namespace window_focus {
 
-HHOOK keyboardHook;
-HHOOK mouseHook;
-std::chrono::steady_clock::time_point lastActivityTime;
+WindowFocusPlugin* WindowFocusPlugin::instance_ = nullptr;
+HHOOK WindowFocusPlugin::keyboardHook_ = nullptr;
+HHOOK WindowFocusPlugin::mouseHook_ = nullptr;
+
+
+
 using CallbackMethod = std::function<void(const std::wstring&)>;
-void UpdateLastActivityTime() {
-    lastActivityTime = std::chrono::steady_clock::now();
-}
 
 
-LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION) {
-        UpdateLastActivityTime();
+
+LRESULT CALLBACK WindowFocusPlugin::KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+if (instance_ && instance_->enableDebug_) {
+    std::cout << "[DEBUG] keyboard: nCode=" << nCode << std::endl;
+  }
+
+  if (nCode == HC_ACTION && instance_) {
+    // Обращаемся к нестатическим полям через instance_
+    instance_->UpdateLastActivityTime();
+
+    // Если пользователь числился неактивным, "пробуждаем" его
+    if (!instance_->userIsActive_) {
+      instance_->userIsActive_ = true;
+      if (instance_->channel) {
+        instance_->channel->InvokeMethod(
+          "onUserActive",
+          std::make_unique<flutter::EncodableValue>("User is active"));
+      }
+
     }
-    return CallNextHookEx(keyboardHook, nCode, wParam, lParam);
+  }
+  return CallNextHookEx(keyboardHook_, nCode, wParam, lParam);
 }
 
-LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION) {
-        UpdateLastActivityTime();
+LRESULT CALLBACK WindowFocusPlugin::MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+  if (nCode == HC_ACTION && instance_) {
+    instance_->UpdateLastActivityTime();
+    if (!instance_->userIsActive_) {
+      instance_->userIsActive_ = true;
+      if (instance_->channel) {
+        instance_->channel->InvokeMethod(
+          "onUserActive",
+          std::make_unique<flutter::EncodableValue>("User is active"));
+      }
+
+       if (instance_ && instance_->enableDebug_) {
+              std::cout << "[DEBUG] MouseProc: nCode=" << nCode << std::endl;
+            }
     }
-    return CallNextHookEx(mouseHook, nCode, wParam, lParam);
+  }
+  return CallNextHookEx(mouseHook_, nCode, wParam, lParam);
 }
 
-void SetHooks() {
-    keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, NULL, 0);
-    mouseHook = SetWindowsHookEx(WH_MOUSE_LL, MouseProc, NULL, 0);
+
+void WindowFocusPlugin::SetHooks() {
+ if (instance_ && instance_->enableDebug_) {
+    std::cout << "[DEBUG] SetHooks: start\n";
+  }
+  // Пример: глобальные LL-хуки
+  HINSTANCE hInstance = GetModuleHandle(nullptr);
+
+  keyboardHook_ = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, hInstance, 0);
+  if (!keyboardHook_) {
+    std::cerr << "Failed to install keyboard hook: " << GetLastError() << std::endl;
+  }
+
+  mouseHook_ = SetWindowsHookEx(WH_MOUSE_LL, MouseProc, hInstance, 0);
+  if (!mouseHook_) {
+    std::cerr << "Failed to install mouse hook: " << GetLastError() << std::endl;
+  }
 }
 
-void RemoveHooks() {
-    UnhookWindowsHookEx(keyboardHook);
-    UnhookWindowsHookEx(mouseHook);
+void WindowFocusPlugin::RemoveHooks() {
+  if (keyboardHook_) {
+    UnhookWindowsHookEx(keyboardHook_);
+    keyboardHook_ = nullptr;
+  }
+  if (mouseHook_) {
+    UnhookWindowsHookEx(mouseHook_);
+    mouseHook_ = nullptr;
+  }
 }
+void WindowFocusPlugin::UpdateLastActivityTime() {
+  lastActivityTime = std::chrono::steady_clock::now();
+}
+
+
 std::string ConvertWindows1251ToUTF8(const std::string& windows1251_str) {
     int size_needed = MultiByteToWideChar(1251, 0, windows1251_str.c_str(), -1, NULL, 0);
     std::wstring utf16_str(size_needed, 0);
@@ -80,32 +134,42 @@ std::string ConvertWStringToUTF8(const std::wstring& wstr) {
     WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
     return strTo;
 }
-void WindowFocusPlugin::SetMethodChannel(std::shared_ptr<flutter::MethodChannel<flutter::EncodableValue>> method_channel) {
+/*void WindowFocusPlugin::SetMethodChannel(std::shared_ptr<flutter::MethodChannel<flutter::EncodableValue>> method_channel) {
     channel = method_channel;
-}
+}*/
 // static
 void WindowFocusPlugin::RegisterWithRegistrar(
-    flutter::PluginRegistrarWindows *registrar) {
-  auto channel =
-      std::make_shared<flutter::MethodChannel<flutter::EncodableValue>>(
-          registrar->messenger(), "expert.kotelnikoff/window_focus",
-          &flutter::StandardMethodCodec::GetInstance());
+    flutter::PluginRegistrarWindows* registrar) {
 
+  // Создаём канал
+  auto channel = std::make_shared<flutter::MethodChannel<flutter::EncodableValue>>(
+      registrar->messenger(),
+      "expert.kotelnikoff/window_focus",
+      &flutter::StandardMethodCodec::GetInstance());
+
+  // Создаём сам плагин
   auto plugin = std::make_unique<WindowFocusPlugin>();
-  plugin->SetMethodChannel(channel);
+  // Запоминаем канал в объекте
+  plugin->channel = channel;
 
+  // Если нужно: устанавливаем хуки
+  plugin->SetHooks();
+
+    plugin->CheckForInactivity();
+    plugin->StartFocusListener();
+
+
+  // Пример: метод-хендлер, обрабатывающий вызовы из Dart
   channel->SetMethodCallHandler(
-      [plugin_pointer = plugin.get()](const auto &call, auto result) {
-        plugin_pointer->HandleMethodCall(call, std::move(result));
-      });
-        SetHooks();
+    [plugin_pointer = plugin.get()](const auto& call,
+                                    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+      plugin_pointer->HandleMethodCall(call, std::move(result));
+    }
+  );
 
-        plugin->CheckForInactivity();
-        plugin->StartFocusListener();
-        //z plugin->StartFocusListener(std::move(channel));
+  // Если нужно, можно запустить поток: plugin->CheckForInactivity(); и т.д.
 
-
-
+  // Регистрируем плагин в системе Flutter
   registrar->AddPlugin(std::move(plugin));
 }
 
@@ -130,28 +194,66 @@ std::string GetFocusedWindowTitle() {
     return windowTitle;
 }
 
-WindowFocusPlugin::WindowFocusPlugin() {}
+WindowFocusPlugin::WindowFocusPlugin() {
+ instance_ = this;
 
-WindowFocusPlugin::~WindowFocusPlugin() {}
+  // Инициализируем момент времени (для отслеживания активности)
+  lastActivityTime = std::chrono::steady_clock::now();
+  }
+
+WindowFocusPlugin::~WindowFocusPlugin() {
+  instance_ = nullptr;
+}
 
 void WindowFocusPlugin::HandleMethodCall(
-    const flutter::MethodCall<flutter::EncodableValue> &method_call,
+    const flutter::MethodCall<flutter::EncodableValue>& method_call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  if (method_call.method_name().compare("getPlatformVersion") == 0) {
-    std::ostringstream version_stream;
-    version_stream << "Windows ";
-    if (IsWindows10OrGreater()) {
-      version_stream << "10+";
-    } else if (IsWindows8OrGreater()) {
-      version_stream << "8";
-    } else if (IsWindows7OrGreater()) {
-      version_stream << "7";
+
+  const auto& method_name = method_call.method_name();
+
+
+  if (method_name == "setDebugMode") {
+      // Извлекаем аргументы
+      if (const auto* args = std::get_if<flutter::EncodableMap>(method_call.arguments())) {
+        auto it = args->find(flutter::EncodableValue("debug"));
+        if (it != args->end()) {
+          if (std::holds_alternative<bool>(it->second)) {
+            bool newDebugValue = std::get<bool>(it->second);
+            enableDebug_ = newDebugValue;
+            std::cout << "[DEBUG] C++: enableDebug_ set to " << (enableDebug_ ? "true" : "false") << std::endl;
+            result->Success();
+            return;
+          }
+        }
+      }
+      result->Error("Invalid argument", "Expected a bool for 'debug'.");
+      return;
     }
-    result->Success(flutter::EncodableValue(version_stream.str()));
-  } else {
+
+  // Пример: установить таймаут
+  if (method_name == "setInactivityTimeOut") {
+    if (const auto* args = std::get_if<flutter::EncodableMap>(method_call.arguments())) {
+      auto it = args->find(flutter::EncodableValue("inactivityTimeOut"));
+      if (it != args->end()) {
+        if (std::holds_alternative<int>(it->second)) {
+          inactivityThreshold_ = std::get<int>(it->second);
+          std::cout << "Updated inactivityThreshold_ to " << inactivityThreshold_ << std::endl;
+          result->Success(flutter::EncodableValue(inactivityThreshold_));
+          return;
+        }
+      }
+    }
+    result->Error("Invalid argument", "Expected an integer argument.");
+  } else if (method_name == "getPlatformVersion") {
+    result->Success(flutter::EncodableValue("Windows: example"));
+  } else if (method_name == "getIdleThreshold") {
+    result->Success(flutter::EncodableValue(inactivityThreshold_));
+  }
+  else {
     result->NotImplemented();
   }
 }
+
 std::string GetProcessName(DWORD processID) {
     std::wstring processName = L"<unknown>";
 
@@ -186,58 +288,27 @@ std::string GetFocusedWindowAppName() {
 }
 
 void WindowFocusPlugin::CheckForInactivity() {
-        std::thread([this]() {
+  std::thread([this]() {
+   while (true) {
+     std::this_thread::sleep_for(std::chrono::seconds(1));
+     auto now = std::chrono::steady_clock::now();
+     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastActivityTime).count();
 
 
-            int inactivityThreshold = 1000;//1000 * 60 * 3;
 
-            /*channel.SetMethodCallHandler(
-                    [&inactivityThreshold](const flutter::MethodCall<flutter::EncodableValue>& call,
-                                           std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-                        if (call.method_name() == "setInactivityTimeOut") {
-                            const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
-                            if (args) {
-                                auto it = args->find(flutter::EncodableValue("inactivityTimeOut"));
-                                if (it != args->end()) {
-                                    const flutter::EncodableValue& value = it->second;
-                                    if (std::holds_alternative<int>(value)) {
-                                        int intValue = std::get<int>(value);
-                                        inactivityThreshold = intValue;
-                                        std::cout << "Received int parameter: " << intValue << std::endl;
-                                        result->Success(flutter::EncodableValue(intValue));
-                                        return;
-                                    }
-                                }
-                            }
-                            result->Error("Invalid argument", "Expected an integer argument.");
-                        }
-                        else {
-                            result->NotImplemented();
-                        }
-                    });
-*/
-
-
-            while (true) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                auto now = std::chrono::steady_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastActivityTime).count();
-
-                if (duration > inactivityThreshold) {
-
-                    std::cout << "User: " << "User is inactive" << std::endl;
-                    std::cout << "TimeOut: " << inactivityThreshold << std::endl;
-
-
-                    flutter::EncodableValue args("User is inactive");
-                    flutter::EncodableValue method_name("onUserInactivity");
-                    channel->InvokeMethod("onUserInactivity", std::make_unique<flutter::EncodableValue>(args));
-
-                    UpdateLastActivityTime();
-                }
-            }
-        }).detach();
-    }
+     if (duration > inactivityThreshold_ && userIsActive_) {
+       userIsActive_ = false;
+        if (instance_ && instance_->enableDebug_) {
+           std::cout << "[DEBUG] User is inactive\n";
+         }
+       if (channel) {
+         channel->InvokeMethod("onUserInactivity",
+           std::make_unique<flutter::EncodableValue>("User is inactive"));
+       }
+     }
+   }
+  }).detach();
+}
 void WindowFocusPlugin::StartFocusListener(){
     std::thread([this]() {
         HWND last_focused = nullptr;
@@ -252,9 +323,13 @@ void WindowFocusPlugin::StartFocusListener(){
                 std::string windowTitle = GetFocusedWindowTitle();
                 std::string window_title(title);
 
-                std::cout << "Current window title: " << window_title << std::endl;
-                std::cout << "Current window name: " << windowTitle << std::endl;
-                std::cout << "Current window appName: " << appName << std::endl;
+                if (instance_ && instance_->enableDebug_) {
+                 std::cout << "Current window title: " << window_title << std::endl;
+                                std::cout << "Current window name: " << windowTitle << std::endl;
+                                std::cout << "Current window appName: " << appName << std::endl;
+                         }
+
+
 
                 std::string utf8_output = ConvertWindows1251ToUTF8(window_title);
                 std::string utf8_windowTitle = ConvertWindows1251ToUTF8(windowTitle);
@@ -265,14 +340,13 @@ void WindowFocusPlugin::StartFocusListener(){
                 data[flutter::EncodableValue("windowTitle")] = flutter::EncodableValue(utf8_windowTitle);
                 channel->InvokeMethod("onFocusChange", std::make_unique<flutter::EncodableValue>(data));
 
+/*                registrar_->GetTaskRunner()->PostTask([this]() {
+                    channel->InvokeMethod("onFocusChange",
+                        std::make_unique<flutter::EncodableValue>(data));
+                  });*/
+
 
             }
-            /*std::string current_title = GetFocusedWindowTitle();
-            if(last_title!=current_title){
-                std::string windowTitle = GetFocusedWindowTitle();
-                std::cout << "Изменение заголовка: " << windowTitle << std::endl;
-
-            }*/
             Sleep(100);
         }
     }).detach();

@@ -5,7 +5,6 @@ import 'package:window_focus/window_focus_method_channel.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  MethodChannelWindowFocus platform = MethodChannelWindowFocus();
   const MethodChannel channel = MethodChannel('window_focus');
 
   setUp(() {

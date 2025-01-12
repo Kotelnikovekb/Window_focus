@@ -1,6 +1,6 @@
 name: window_focus
 description: "Window Focus is a convenient plugin for Flutter that allows you to track user inactivity and obtain information about the title of the active window on Mac OS and Windows."
-version: 1.0.0
+version: 1.1.0
 homepage: https://github.com/Kotelnikovekb/Window_focus
 authors:
   - Kotelnikoff Yury <y@kotelnikoff.expert>
