@@ -7,14 +7,17 @@
 
 ![Пример использования](image/screenshot.png)
 [![Pub](https://img.shields.io/pub/v/window_focus)](https://pub.dev/packages/window_focus)
-Window focus - это удобный плагин для Flutter, который позволяет отслеживать бездействие пользователя и получать информацию о заголовке активного окна на  Mac OS и Windows.
+**Window Focus** — это плагин для Flutter, который позволяет отслеживать активность пользователя и фокус активного окна на платформах Windows и macOS. Плагин предоставляет возможности для определения времени бездействия пользователя, получения информации об активном приложении и включения режима отладки.
+## Возможности:
 
-## Основные функции:
-
-### Отслеживание бездействия пользователя:
-Плагин позволяет определить периоды бездействия пользователя в вашем приложении Flutter. Вы можете настроить пороговое значение бездействия и обрабатывать события бездействия в соответствии с вашими потребностями.
-### Получение заголовка активного окна:
-предоставляет возможность получить заголовок активного окна операционной системы. Для Mac OS это название приложения, для Windows - заголовок окна.
+### Отслеживание активности пользователя:
+Определяет, когда пользователь активен или бездействует
+### Отслеживание активного окна:
+Получение заголовка и имени текущего активного окна.
+### Режим отладки:
+Включение подробных логов для отладки во время разработки.
+### Установка тайм-аута бездействия:
+Настройка времени, через которое пользователь считается неактивным.
 
 # Установка плагина
 ## Windows
@@ -27,29 +30,108 @@ Window focus - это удобный плагин для Flutter, который
 ```
 # Использование плагина
 ```dart
-  final _windowFocusPlugin = WindowFocus();
-  
-  /// Слушатель событий изменения рабочего окна пользователя
-  _windowFocusPlugin.addFocusChangeListener((p0) {
-    setState(() {
-      activeWindowTitle='${p0.windowTitle}';
-      /// activeWindowTitle - содержит 2 поля windowTitle = заголовок окна, appName = Название приложения.
-     /// На Mac os Эти названия одинаоковые. На Windows appName - это название процесса в котором запущено окно.
-    });
-  });
-  /// Слушатель активности пользователя. Работает с true если пользователь активен и false если пользователь не активен.
-  _windowFocusPlugin.addUserActiveListener((p0) {
-    setState(() {
-      userIdle=p0;
-    });
-  });
-  /// Установка порога бездействия пользователя. По умолчанию 5 секунд.
-  _windowFocusPlugin.setIdleThreshold(duration: duration);
+  void main() {
+  final windowFocus = WindowFocus(debug: true, duration: Duration(seconds: 10));
 
-  /// Возвращает текущий порог бездействия
-  Duration duration = await _windowFocusPlugin.idleThreshold;
+  // Добавление слушателя изменений активного окна
+  windowFocus.addFocusChangeListener((appWindow) {
+    print('Активное приложение: ${appWindow.appName}, Заголовок окна: ${appWindow.windowTitle}');
+  });
 
+  // Добавление слушателя активности пользователя
+  windowFocus.addUserActiveListener((isActive) {
+    if (isActive) {
+      print('Пользователь активен');
+    } else {
+      print('Пользователь неактивен');
+    }
+  });
+}
 ```
+# API
+## Конструктор
+```dart
+WindowFocus({bool debug = false, Duration duration = const Duration(seconds: 5)})
+```
+- `debug` (необязательно): Включает режим отладки для отображения подробных логов.
+- `duration` (необязательно): Устанавливает тайм-аут бездействия пользователя. По умолчанию 5 секунд.
+## Методы
+
+### Future<void> setIdleThreshold(Duration duration)
+
+Устанавливает тайм-аут бездействия пользователя.
+- **Параметры:**
+  - `duration`: Время через которое пользователь считается неактивным.
+```dart
+await windowFocus.setIdleThreshold(Duration(seconds: 15));
+```
+### Future<Duration> getIdleThreshold()
+Возвращает текущий тайм-аут бездействия.
+- **Возвращает**: `Duration` — текущий тайм-аут бездействия.
+
+```dart
+final threshold = await windowFocus.getIdleThreshold();
+print('Тайм-аут бездействия: ${threshold.inSeconds} секунд');
+```
+### void addFocusChangeListener(Function(AppWindowDto) listener)
+
+Добавляет слушателя изменений активного окна.
+
+- **Параметры:**
+  - `listener`: Функция, которая принимает объект AppWindowDto с информацией о текущем активном приложении:
+    - `appName`: Имя активного приложения.
+    - `windowTitle`: Заголовок активного окна.
+
+**Особенности платформ**
+- Windows:
+  - `appName` — имя исполняемого файла приложения (например, chrome.exe).
+  - `windowTitle` — заголовок активного окна (например, Документация Flutter).
+- macOS:
+  - `appName` и `windowTitle` совпадают и представляют собой имя активного приложения (например, Safari).
+
+```dart
+windowFocus.addFocusChangeListener((appWindow) {
+print('Активное приложение: ${appWindow.appName}, Заголовок окна: ${appWindow.windowTitle}');
+});
+```
+
+### void addUserActiveListener(Function(bool) listener)
+Добавляет слушателя изменений активности пользователя.
+- **Параметры:**
+  - `listener`: Функция, которая принимает bool, указывающий на активность пользователя (true для активного, false для неактивного).
+```dart
+windowFocus.addUserActiveListener((isActive) {
+  if (isActive) {
+    print('Пользователь активен');
+  } else {
+    print('Пользователь неактивен');
+  }
+});
+```
+
+### Future<void> setDebug(bool value)
+Включает или отключает режим отладки.
+- **Параметры:**
+  - `value`: true для включения режима отладки, false для отключения.
+
+```dart
+await windowFocus.setDebug(true);
+```
+
+# DTO: AppWindowDto
+Представляет информацию об активном приложении и окне.
+
+**Свойства**
+- **appName**: String — Имя активного приложения.
+- **windowTitle**: String — Заголовок активного окна (для macOS совпадает с appName).
+
+**Пример**
+
+```dart
+final appWindow = AppWindowDto(appName: "Chrome", windowTitle: "Flutter Documentation");
+print(appWindow); // Output: Window title: Flutter Documentation. AppName: Chrome
+```
+
 # От автора
 Я в telegram - [@kotelnikoff_dev](https://t.me/kotelnikoff_dev)
 [Подкинте автору на кофе](https://www.tinkoff.ru/rm/kotelnikov.yuriy2/PzxiM41989/), а то ему еще песика кормить
