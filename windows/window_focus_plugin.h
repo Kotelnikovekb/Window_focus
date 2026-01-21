@@ -54,6 +54,8 @@ class WindowFocusPlugin : public flutter::Plugin {
 
   void CheckForInactivity();
   void StartFocusListener();
+
+  std::optional<std::vector<uint8_t>> TakeScreenshot(bool activeWindowOnly);
 };
 
 }  // namespace window_focus

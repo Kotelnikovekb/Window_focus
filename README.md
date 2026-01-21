@@ -22,15 +22,34 @@ Enable detailed logs for troubleshooting during development.
 ### Set Custom Idle Threshold
 Define the timeout period after which the user is considered inactive.
 
+### Screenshot Capture
+Capture the entire screen or just the active window. This is useful for time tracking applications.
+
 # Plugin Installation
 ## Windows
 No action required.
 ## Mac OS
+### Setup for window focus tracking
 You need to add the following code to the Info.plist file for MacOS:
 ```xml
 <key>NSApplicationSupportsSecureRestorableState</key>
 <true/>
 ```
+
+### Setup for screen recording (screenshots)
+To use the screenshot functionality on macOS 10.15+, you must request screen recording permission. You can check the permission status using `checkScreenRecordingPermission()` and request it using `requestScreenRecordingPermission()`.
+
+The user must manually enable this in:
+**System Preferences > Security & Privacy > Privacy > Screen Recording**
+
+### Setup for Global Keyboard Tracking (macOS)
+To track keyboard activity globally (outside the app) on macOS, the application requires **Accessibility** permissions. 
+**Crucial:** Without these permissions, the plugin will only detect mouse movements and clicks outside the app, but **keyboard events will be ignored** for security reasons.
+
+The user must manually enable this in:
+**System Preferences > Security & Privacy > Privacy > Accessibility**
+(Or **System Settings > Privacy & Security > Accessibility** on macOS Ventura and newer).
+
 # Plugin Usage
 ## Import the plugin:
 ```dart
@@ -125,6 +144,23 @@ Enables or disables debug mode.
 ```dart
 await windowFocus.setDebug(true);
 ```
+
+### Future<Uint8List?> takeScreenshot({bool activeWindowOnly = false})
+Takes a screenshot of the entire screen or just the active window.
+- **Parameters:**
+  - `activeWindowOnly`: If true, captures only the currently focused window.
+- **Returns**: `Future<Uint8List?>` - PNG image data.
+
+```dart
+Uint8List? screenshot = await windowFocus.takeScreenshot(activeWindowOnly: true);
+```
+
+### Future<bool> checkScreenRecordingPermission()
+Checks if screen recording permission is granted (macOS).
+
+### Future<void> requestScreenRecordingPermission()
+Requests screen recording permission (macOS).
+
 ## DTO: AppWindowDto
 Represents the active application and window information.
 

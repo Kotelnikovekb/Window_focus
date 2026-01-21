@@ -25,6 +25,10 @@
 #include <psapi.h>
 #include <chrono>
 #include <sstream>
+#include <vector>
+#include <gdiplus.h>
+
+#pragma comment(lib, "gdiplus.lib")
 
 namespace window_focus {
 
@@ -39,11 +43,10 @@ using CallbackMethod = std::function<void(const std::wstring&)>;
 
 
 LRESULT CALLBACK WindowFocusPlugin::KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-if (instance_ && instance_->enableDebug_) {
-    std::cout << "[DEBUG] keyboard: nCode=" << nCode << std::endl;
-  }
-
   if (nCode == HC_ACTION && instance_) {
+    if (instance_->enableDebug_) {
+      std::cout << "[WindowFocus] keyboard hook detected action" << std::endl;
+    }
     // Обращаемся к нестатическим полям через instance_
     instance_->UpdateLastActivityTime();
 
@@ -55,7 +58,6 @@ if (instance_ && instance_->enableDebug_) {
           "onUserActive",
           std::make_unique<flutter::EncodableValue>("User is active"));
       }
-
     }
   }
   return CallNextHookEx(keyboardHook_, nCode, wParam, lParam);
@@ -63,6 +65,9 @@ if (instance_ && instance_->enableDebug_) {
 
 LRESULT CALLBACK WindowFocusPlugin::MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode == HC_ACTION && instance_) {
+    if (instance_->enableDebug_) {
+      std::cout << "[WindowFocus] mouse hook detected action" << std::endl;
+    }
     instance_->UpdateLastActivityTime();
     if (!instance_->userIsActive_) {
       instance_->userIsActive_ = true;
@@ -71,10 +76,6 @@ LRESULT CALLBACK WindowFocusPlugin::MouseProc(int nCode, WPARAM wParam, LPARAM l
           "onUserActive",
           std::make_unique<flutter::EncodableValue>("User is active"));
       }
-
-       if (instance_ && instance_->enableDebug_) {
-              std::cout << "[DEBUG] MouseProc: nCode=" << nCode << std::endl;
-            }
     }
   }
   return CallNextHookEx(mouseHook_, nCode, wParam, lParam);
@@ -83,19 +84,27 @@ LRESULT CALLBACK WindowFocusPlugin::MouseProc(int nCode, WPARAM wParam, LPARAM l
 
 void WindowFocusPlugin::SetHooks() {
  if (instance_ && instance_->enableDebug_) {
-    std::cout << "[DEBUG] SetHooks: start\n";
+    std::cout << "[WindowFocus] SetHooks: start\n";
   }
   // Пример: глобальные LL-хуки
   HINSTANCE hInstance = GetModuleHandle(nullptr);
 
   keyboardHook_ = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, hInstance, 0);
   if (!keyboardHook_) {
-    std::cerr << "Failed to install keyboard hook: " << GetLastError() << std::endl;
+    std::cerr << "[WindowFocus] Failed to install keyboard hook: " << GetLastError() << std::endl;
+  } else {
+    if (instance_ && instance_->enableDebug_) {
+      std::cout << "[WindowFocus] Keyboard hook installed successfully\n";
+    }
   }
 
   mouseHook_ = SetWindowsHookEx(WH_MOUSE_LL, MouseProc, hInstance, 0);
   if (!mouseHook_) {
-    std::cerr << "Failed to install mouse hook: " << GetLastError() << std::endl;
+    std::cerr << "[WindowFocus] Failed to install mouse hook: " << GetLastError() << std::endl;
+  } else {
+    if (instance_ && instance_->enableDebug_) {
+      std::cout << "[WindowFocus] Mouse hook installed successfully\n";
+    }
   }
 }
 
@@ -220,7 +229,7 @@ void WindowFocusPlugin::HandleMethodCall(
           if (std::holds_alternative<bool>(it->second)) {
             bool newDebugValue = std::get<bool>(it->second);
             enableDebug_ = newDebugValue;
-            std::cout << "[DEBUG] C++: enableDebug_ set to " << (enableDebug_ ? "true" : "false") << std::endl;
+            std::cout << "[WindowFocus] C++: enableDebug_ set to " << (enableDebug_ ? "true" : "false") << std::endl;
             result->Success();
             return;
           }
@@ -248,8 +257,25 @@ void WindowFocusPlugin::HandleMethodCall(
     result->Success(flutter::EncodableValue("Windows: example"));
   } else if (method_name == "getIdleThreshold") {
     result->Success(flutter::EncodableValue(inactivityThreshold_));
-  }
-  else {
+  } else if (method_name == "takeScreenshot") {
+    bool activeWindowOnly = false;
+    if (const auto* args = std::get_if<flutter::EncodableMap>(method_call.arguments())) {
+      auto it = args->find(flutter::EncodableValue("activeWindowOnly"));
+      if (it != args->end() && std::holds_alternative<bool>(it->second)) {
+        activeWindowOnly = std::get<bool>(it->second);
+      }
+    }
+    auto screenshot = TakeScreenshot(activeWindowOnly);
+    if (screenshot.has_value()) {
+      result->Success(flutter::EncodableValue(screenshot.value()));
+    } else {
+      result->Error("SCREENSHOT_ERROR", "Failed to take screenshot");
+    }
+  } else if (method_name == "checkScreenRecordingPermission") {
+    result->Success(flutter::EncodableValue(true));
+  } else if (method_name == "requestScreenRecordingPermission") {
+    result->Success();
+  } else {
     result->NotImplemented();
   }
 }
@@ -299,7 +325,7 @@ void WindowFocusPlugin::CheckForInactivity() {
      if (duration > inactivityThreshold_ && userIsActive_) {
        userIsActive_ = false;
         if (instance_ && instance_->enableDebug_) {
-           std::cout << "[DEBUG] User is inactive\n";
+           std::cout << "[WindowFocus] User is inactive. Duration: " << duration << "ms, Threshold: " << inactivityThreshold_ << "ms" << std::endl;
          }
        if (channel) {
          channel->InvokeMethod("onUserInactivity",
@@ -352,7 +378,85 @@ void WindowFocusPlugin::StartFocusListener(){
     }).detach();
 }
 
+int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
+    UINT num = 0;
+    UINT size = 0;
+    Gdiplus::GetImageEncodersSize(&num, &size);
+    if (size == 0) return -1;
+    Gdiplus::ImageCodecInfo* pImageCodecInfo = (Gdiplus::ImageCodecInfo*)(malloc(size));
+    if (pImageCodecInfo == NULL) return -1;
+    Gdiplus::GetImageEncoders(num, size, pImageCodecInfo);
+    for (UINT j = 0; j < num; ++j) {
+        if (wcscmp(pImageCodecInfo[j].MimeType, format) == 0) {
+            *pClsid = pImageCodecInfo[j].Clsid;
+            free(pImageCodecInfo);
+            return j;
+        }
+    }
+    free(pImageCodecInfo);
+    return -1;
+}
 
+std::optional<std::vector<uint8_t>> WindowFocusPlugin::TakeScreenshot(bool activeWindowOnly) {
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
 
+    HWND hwnd = activeWindowOnly ? GetForegroundWindow() : GetDesktopWindow();
+    if (hwnd == NULL) hwnd = GetDesktopWindow();
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcWindow = GetDC(hwnd);
+    HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
+
+    RECT rc;
+    GetWindowRect(hwnd, &rc);
+    int width = rc.right - rc.left;
+    int height = rc.bottom - rc.top;
+
+    HBITMAP hbmScreen = CreateCompatibleBitmap(hdcWindow, width, height);
+    SelectObject(hdcMemDC, hbmScreen);
+
+    if (activeWindowOnly) {
+        // Для активного окна используем BitBlt с координатами окна, так как PrintWindow может не работать для некоторых приложений (например, Chrome с аппаратным ускорением)
+        // Но BitBlt тоже может вернуть черный экран для некоторых приложений (Chrome, Discord и т.д.)
+        // Самый надежный способ - BitBlt с hdcScreen, но только нужной области
+        BitBlt(hdcMemDC, 0, 0, width, height, hdcScreen, rc.left, rc.top, SRCCOPY);
+    } else {
+        BitBlt(hdcMemDC, 0, 0, width, height, hdcScreen, rc.left, rc.top, SRCCOPY);
+    }
+
+    Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(hbmScreen, NULL);
+    IStream* stream = NULL;
+    CreateStreamOnHGlobal(NULL, TRUE, &stream);
+
+    CLSID pngClsid;
+    GetEncoderClsid(L"image/png", &pngClsid);
+    bitmap->Save(stream, &pngClsid, NULL);
+
+    STATSTG statstg;
+    stream->Stat(&statstg, STATFLAG_DEFAULT);
+    ULONG fileSize = (ULONG)statstg.cbSize.QuadPart;
+
+    std::vector<uint8_t> data(fileSize);
+    LARGE_INTEGER liZero = { 0 };
+    stream->Seek(liZero, STREAM_SEEK_SET, NULL);
+    ULONG bytesRead = 0;
+    stream->Read(data.data(), fileSize, &bytesRead);
+
+    stream->Release();
+    delete bitmap;
+    DeleteObject(hbmScreen);
+    DeleteDC(hdcMemDC);
+    ReleaseDC(hwnd, hdcWindow);
+    ReleaseDC(NULL, hdcScreen);
+
+    Gdiplus::GdiplusShutdown(gdiplusToken);
+
+    if (bytesRead > 0) {
+        return data;
+    }
+    return std::nullopt;
+}
 
 }  // namespace window_focus

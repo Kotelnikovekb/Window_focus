@@ -90,6 +90,33 @@ class WindowFocus{
   Stream<AppWindowDto> get onFocusChanged => _focusChangeController.stream;
   Stream<bool> get onUserActiveChanged => _userActiveController.stream;
 
+  /// Takes a screenshot.
+  ///
+  /// - [activeWindowOnly]: If `true`, only the currently focused window will be captured.
+  ///   If `false`, the entire screen will be captured. Default is `false`.
+  ///
+  /// Returns a `Uint8List` containing the image data in PNG format.
+  Future<Uint8List?> takeScreenshot({bool activeWindowOnly = false}) async {
+    return await _channel.invokeMethod<Uint8List>('takeScreenshot', {
+      'activeWindowOnly': activeWindowOnly,
+    });
+  }
+
+  /// Checks if the application has permission to record the screen.
+  ///
+  /// On macOS 10.15+, this requires user authorization in
+  /// System Preferences > Security & Privacy > Privacy > Screen Recording.
+  Future<bool> checkScreenRecordingPermission() async {
+    return await _channel.invokeMethod<bool>('checkScreenRecordingPermission') ?? false;
+  }
+
+  /// Requests permission to record the screen.
+  ///
+  /// On macOS, this will trigger a system dialog or open the Privacy settings.
+  Future<void> requestScreenRecordingPermission() async {
+    await _channel.invokeMethod('requestScreenRecordingPermission');
+  }
+
   /// Sets the user inactivity timeout.
   ///
   /// If the user is inactive for the specified duration, the plugin sends an event

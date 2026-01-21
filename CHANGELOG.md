@@ -1,3 +1,29 @@
+## [1.2.0] - 2026-01-22
+### Added
+- **Screenshot Capture:**
+    - New method `takeScreenshot({bool activeWindowOnly})` to capture the entire screen or just the active window.
+    - Added `checkScreenRecordingPermission()` and `requestScreenRecordingPermission()` for macOS 10.15+.
+- **Global Keyboard Activity (macOS):**
+    - Implemented global keyboard tracking via `CGEventTap` for more accurate idle detection.
+    - Added detailed logs for event monitoring in debug mode.
+- **Example App Enhancements:**
+    - Added auto-screenshot feature with customizable intervals.
+    - Added screenshot logging and preview in the UI.
+    - Improved UI with app usage statistics and activity logs.
+
+### Changed
+- **Improved Active Window Capture:**
+    - macOS: Now dynamically detects the frontmost application and its main window for screenshots.
+    - Windows: Switched to `BitBlt` from screen context for more reliable capture of hardware-accelerated windows (e.g., Chrome).
+- **Refined Idle Tracking:**
+    - Expanded event mask on macOS to include system modifier keys (Shift, Cmd, etc.).
+    - Improved resources cleanup and lifecycle management in native code.
+
+### Fixed
+- Fixed macOS compilation error related to `CFRunLoopSourceCreate`.
+- Fixed various syntax errors and widget hierarchy issues in the example app.
+- Fixed issue where screenshot was always capturing the app itself instead of the active window.
+
 ## [1.1.0] - 2025-01-12
 ### Added
 - **Debug Mode:**
