@@ -20,8 +20,8 @@ public class WindowFocusPlugin: NSObject, FlutterPlugin {
     registrar.addMethodCallDelegate(instance, channel: channel)
 
 
-    instance.windowFocusObserver = WindowFocusObserver { (message) in
-                channel.invokeMethod("onFocusChange", arguments: ["appName": message, "windowTitle": message]) { (result) in
+    instance.windowFocusObserver = WindowFocusObserver { (appName, windowTitle) in
+                channel.invokeMethod("onFocusChange", arguments: ["appName": appName, "windowTitle": windowTitle]) { (result) in
 
                 }
             }
@@ -180,30 +180,67 @@ class WindowFocusObserver {
 
     private var focusedAppPID: pid_t = -1
         internal var focusedWindowID: CGWindowID = 0
-        private let sendMessage: (String) -> Void
+        private let sendMessage: (String, String) -> Void
 
-        init(sendMessage: @escaping (String) -> Void) {
+        init(sendMessage: @escaping (String, String) -> Void) {
             self.sendMessage = sendMessage
 
         // Добавляем наблюдателя за изменением активного приложения (глобально)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(focusedAppChanged(_:)), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        
+        // Таймер для отслеживания смены заголовка окна внутри одного приложения
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkWindowTitleChanged()
+        }
     }
+
+    private var lastWindowTitle: String = ""
+    private var lastAppName: String = ""
 
     @objc private func focusedAppChanged(_ notification: Notification) {
         if let userInfo = notification.userInfo,
            let application = userInfo[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
             let pid = application.processIdentifier
-            if pid != focusedAppPID {
-                focusedAppPID = pid
-                let message = "\(application.localizedName ?? "Unknown")"
-                sendMessage(message)
-                
-                // Сбрасываем ID окна, так как приложение сменилось
-                focusedWindowID = 0
-                // Можно попробовать сразу найти главное окно нового приложения
-                updateFocusedWindowID()
+            let appName = application.localizedName ?? "Unknown"
+            
+            focusedAppPID = pid
+            lastAppName = appName
+            
+            // Получаем заголовок окна при смене приложения
+            let windowTitle = getActiveWindowTitle(for: pid)
+            lastWindowTitle = windowTitle
+            
+            sendMessage(appName, windowTitle)
+            updateFocusedWindowID()
+        }
+    }
+
+    private func checkWindowTitleChanged() {
+        guard focusedAppPID != -1 else { return }
+        
+        let currentTitle = getActiveWindowTitle(for: focusedAppPID)
+        if currentTitle != lastWindowTitle {
+            lastWindowTitle = currentTitle
+            sendMessage(lastAppName, currentTitle)
+        }
+    }
+
+    private func getActiveWindowTitle(for pid: pid_t) -> String {
+        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
+        if let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+            for info in infoList {
+                if let windowOwnerPID = info[kCGWindowOwnerPID as String] as? pid_t, windowOwnerPID == pid {
+                    let windowLayer = info[kCGWindowLayer as String] as? Int ?? 0
+                    if windowLayer == 0 {
+                        let windowName = info[kCGWindowName as String] as? String ?? ""
+                        if !windowName.isEmpty {
+                            return windowName
+                        }
+                    }
+                }
             }
         }
+        return lastAppName.isEmpty ? "Unknown" : lastAppName
     }
 
     private func updateFocusedWindowID() {
@@ -225,7 +262,6 @@ class WindowFocusObserver {
 
         deinit {
             NSWorkspace.shared.notificationCenter.removeObserver(self)
-            NotificationCenter.default.removeObserver(self)
         }
 }
 public class IdleTracker: NSObject {
@@ -321,17 +357,17 @@ public class IdleTracker: NSObject {
         }
 
         if debugMode {
-            print("Debug: Started tracking with idleThreshold = \(idleThreshold)")
+            print("[WindowFocus] Debug: Started tracking with idleThreshold = \(idleThreshold)")
         }
 
-        // Отслеживание взаимодействий пользователя
+        // Отслеживание взаимодействий пользователя для NSEvent (внутри приложения и некоторые глобальные)
         NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown, .flagsChanged]) { [weak self] event in
-            if let self = self {
-                if self.debugMode {
-                    print("[WindowFocus] NSEvent monitor detected: \(event.type) (rawValue: \(event.type.rawValue))")
-                }
-                self.userDidInteract()
-            }
+            self?.userDidInteract()
+        }
+        
+        NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown, .flagsChanged]) { [weak self] event in
+            self?.userDidInteract()
+            return event
         }
 
         // Запуск таймера для проверки времени бездействия
@@ -339,14 +375,32 @@ public class IdleTracker: NSObject {
     }
 
     @objc private func checkIdleTime() {
-            let idleTime = Date().timeIntervalSince(lastActivityTime)
+            // Пытаемся получить время бездействия из разных источников
+            let idleTimeCombined = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .null)
+            let idleTimeHID = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .null)
+            
+            // Ручной расчет времени с момента последнего перехваченного события
+            let manualIdleTime = Date().timeIntervalSince(lastActivityTime)
+            
+            // Берем минимальное значение (наиболее актуальная активность)
+            // Ограничиваем системные счетчики, если они возвращают неадекватные значения (например, -1 или очень большие)
+            // Также добавляем защиту: если системный счетчик слишком большой (больше часа), 
+            // а у нас есть недавнее ручное событие, доверяем ручному.
+            let safeCombined = (idleTimeCombined >= 0 && (idleTimeCombined < 3600 || manualIdleTime > 3600)) ? idleTimeCombined : manualIdleTime
+            let safeHID = (idleTimeHID >= 0 && (idleTimeHID < 3600 || manualIdleTime > 3600)) ? idleTimeHID : manualIdleTime
+            
+            let idleTime = min(safeCombined, safeHID, manualIdleTime)
+
+            if debugMode {
+                print("[WindowFocus] Debug: Idle (C/H/M): \(String(format: "%.2f", safeCombined))/\(String(format: "%.2f", safeHID))/\(String(format: "%.2f", manualIdleTime)) -> Final: \(String(format: "%.2f", idleTime)), Threshold: \(idleThreshold), Active: \(userIsActive)")
+            }
 
             // Если пользователь превысил таймаут бездействия
-            if idleTime > idleThreshold {
+            if idleTime >= idleThreshold {
                 if userIsActive {
                     userIsActive = false
                     if debugMode {
-                        print("Debug: User became inactive. Idle time = \(idleTime)")
+                        print("[WindowFocus] Debug: User became inactive. Idle time = \(idleTime)")
                     }
                     channel.invokeMethod("onUserInactivity", arguments: nil)
                 }
@@ -355,35 +409,32 @@ public class IdleTracker: NSObject {
                 if !userIsActive {
                     userIsActive = true
                     if debugMode {
-                        print("Debug: User became active. Idle time reset.")
+                        print("[WindowFocus] Debug: User became active. Idle time reset to \(idleTime)")
                     }
                     channel.invokeMethod("onUserActive", arguments: nil)
                 }
             }
         }
     private func userDidInteract() {
+        // Мы все еще можем обновлять lastActivityTime для совместимости,
+        // хотя теперь мы больше полагаемся на системный счетчик в checkIdleTime
         lastActivityTime = Date()
-        if !userIsActive {
-                    userIsActive = true
-                    if debugMode {
-                        print("Debug: User became active due to interaction.")
-                    }
-                    channel.invokeMethod("onUserActive", arguments: nil)
-                }
+        // Мы НЕ вызываем onUserActive здесь, чтобы избежать дребезга.
+        // checkIdleTime() увидит изменение системного счетчика idleTime при следующем запуске.
     }
 
     func setIdleThreshold(_ threshold: TimeInterval) {
         self.idleThreshold = threshold
         UserDefaults.standard.set(threshold, forKey: "idleThreshold")
         if debugMode {
-                    print("Debug: Updated idleThreshold to \(threshold)")
+                    print("[WindowFocus] Debug: Updated idleThreshold to \(threshold)")
                 }
     }
 
     func setDebugMode(_ debug: Bool) {
         self.debugMode = debug
         if debugMode {
-            print("Debug: Debug mode enabled")
+            print("[WindowFocus] Debug mode enabled. Current idleThreshold = \(idleThreshold)")
         }
     }
     deinit {

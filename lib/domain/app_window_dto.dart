@@ -6,8 +6,10 @@
 /// - [appName] contains the name of the application associated with the active window.
 ///
 /// On **macOS**:
-/// - Both [windowTitle] and [appName] contain the application name, as macOS does not differentiate
-///   between the window title and the application name.
+/// - [appName] contains the name of the application associated with the active window.
+/// - [windowTitle] contains the title of the active window (if available).
+///   Note: Accessing window titles on macOS might require Screen Recording permissions.
+///   If the window title cannot be retrieved, it will fall back to the application name.
 ///
 /// Example:
 /// ```dart

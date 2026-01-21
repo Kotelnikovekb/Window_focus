@@ -5,7 +5,7 @@ import 'domain/domain.dart';
 
 
 /// The WindowFocus plugin provides functionality for tracking user activity
-/// and the currently active window on the Windows platform. It is useful for applications
+/// and the currently active window on the Windows and macOS platforms. It is useful for applications
 /// that need to monitor user interaction with the system.
 class WindowFocus{
   /// Creates an instance of `WindowFocus` for tracking user activity and window focus.

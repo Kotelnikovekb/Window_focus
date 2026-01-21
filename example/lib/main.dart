@@ -24,8 +24,9 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   String activeWindowTitle = 'Unknown';
-  bool userIdle = false;
-  final _windowFocusPlugin = WindowFocus(debug: true,duration: const Duration(seconds: 5));
+  String activeAppName = 'Unknown';
+  bool isUserActive = true;
+  final _windowFocusPlugin = WindowFocus(debug: true,duration: const Duration(seconds: 10));
   final _messangerKey = GlobalKey<ScaffoldMessengerState>();
   DateTime? lastUpdateTime;
   final textController=TextEditingController();
@@ -33,7 +34,7 @@ class _MyAppState extends State<MyApp> {
 
   List<TimeAppDto> items = [];
   Duration allTime = const Duration();
-  Duration idleTime = const Duration();
+  Duration activeTime = const Duration();
   late Timer _timer;
   Uint8List? _screenshot;
 
@@ -49,12 +50,12 @@ class _MyAppState extends State<MyApp> {
     super.initState();
 
     _windowFocusPlugin.addFocusChangeListener((p0) {
-      _handleFocusChange(p0.appName);
+      _handleFocusChange(p0);
     });
     _windowFocusPlugin.addUserActiveListener((p0) {
-      print('>>>>${p0}');
+      print('User activity changed: isUserActive = $p0');
       setState(() {
-        userIdle = p0;
+        isUserActive = p0;
       });
     });
     _startTimer();
@@ -130,46 +131,44 @@ class _MyAppState extends State<MyApp> {
       setState(() {
         allTime += const Duration(seconds: 1);
 
-        if (!userIdle) {
-          idleTime += const Duration(seconds: 1);
+        if (isUserActive) {
+          activeTime += const Duration(seconds: 1);
         }
       });
     });
   }
 
   void _updateActiveAppTime({bool forceUpdate = false}) {
-    if (!userIdle) return;
+    if (!isUserActive) return;
     if (lastUpdateTime == null) return;
-
 
     final now = DateTime.now();
     final elapsed = now.difference(lastUpdateTime!);
     if (elapsed < const Duration(seconds: 1) && !forceUpdate) return;
 
-    final existingIndex =
-        items.indexWhere((item) => item.appName == activeWindowTitle);
+    final existingIndex = items.indexWhere(
+        (item) => item.appName == activeAppName && item.windowTitle == activeWindowTitle);
     if (existingIndex != -1) {
       final existingItem = items[existingIndex];
       items[existingIndex] = existingItem.copyWith(
         timeUse: existingItem.timeUse + elapsed,
       );
-      setState(() {
-
-      });
     } else {
-      items.add(TimeAppDto(appName: activeWindowTitle, timeUse: elapsed));
+      items.add(TimeAppDto(
+          appName: activeAppName, windowTitle: activeWindowTitle, timeUse: elapsed));
     }
     lastUpdateTime = now;
     setState(() {});
   }
 
-  void _handleFocusChange(String newAppName) {
+  void _handleFocusChange(AppWindowDto window) {
     final now = DateTime.now();
 
-    if (activeWindowTitle != newAppName) {
+    if (activeWindowTitle != window.windowTitle || activeAppName != window.appName) {
       _updateActiveAppTime(forceUpdate: true);
     }
-    activeWindowTitle = newAppName;
+    activeWindowTitle = window.windowTitle;
+    activeAppName = window.appName;
     lastUpdateTime = now;
 
     setState(() {});
@@ -223,14 +222,15 @@ class _MyAppState extends State<MyApp> {
                         mainAxisAlignment: MainAxisAlignment.start,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
+                          Text('App Name: $activeAppName'),
                           Text('Window title in focus: $activeWindowTitle\n'),
-                          Text('User is idle: ${!userIdle}\n'),
+                          Text('User is idle: ${!isUserActive}\n'),
                           Text('Total Time: ${_formatDuration(allTime)}'),
                           const SizedBox(height: 10),
-                          Text('Idle Time: ${_formatDuration(idleTime)}'),
+                          Text('Idle Time: ${_formatDuration(allTime - activeTime)}'),
                           const SizedBox(height: 10),
                           Text(
-                              'Active Time: ${_formatDuration(allTime - idleTime)}'),
+                              'Active Time: ${_formatDuration(activeTime)}'),
                           const Divider(),
                           SwitchListTile(
                             title: const Text('Auto Screenshot'),
@@ -277,15 +277,25 @@ class _MyAppState extends State<MyApp> {
                             children: [
                               Expanded(
                                 child: TextFormField(
+                                  controller: textController,
                                   decoration: const InputDecoration(
                                       label: Text('Time in second')),
+                                  keyboardType: TextInputType.number,
                                 ),
                               ),
                               ElevatedButton(
                                 onPressed: () async {
-                                  Duration duration =
-                                      await _windowFocusPlugin.idleThreshold;
-                                  print(duration);
+                                  final seconds = int.tryParse(textController.text);
+                                  if (seconds != null) {
+                                    await _windowFocusPlugin.setIdleThreshold(
+                                        duration: Duration(seconds: seconds));
+                                    _messangerKey.currentState?.showSnackBar(
+                                      SnackBar(content: Text('Idle threshold set to $seconds seconds')),
+                                    );
+                                  } else {
+                                    Duration duration = await _windowFocusPlugin.idleThreshold;
+                                    print('Current threshold: $duration');
+                                  }
                                 },
                                 child: const Text('Save timeOut'),
                               )
@@ -313,9 +323,13 @@ class _MyAppState extends State<MyApp> {
                             ),
                             child: ListView.builder(
                               itemBuilder: (context, index) {
+                                final item = items[index];
                                 return ListTile(
-                                  title: Text(items[index].appName, style: const TextStyle(fontSize: 12)),
-                                  trailing: Text(formatDurationToHHMM(items[index].timeUse), style: const TextStyle(fontSize: 12)),
+                                  title: Text(item.appName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  subtitle: item.windowTitle.isNotEmpty && item.windowTitle != item.appName 
+                                    ? Text(item.windowTitle, style: const TextStyle(fontSize: 10)) 
+                                    : null,
+                                  trailing: Text(formatDurationToHHMM(item.timeUse), style: const TextStyle(fontSize: 12)),
                                   visualDensity: VisualDensity.compact,
                                 );
                               },
@@ -420,28 +434,31 @@ class _MyAppState extends State<MyApp> {
 
 class TimeAppDto {
   final String appName;
+  final String windowTitle;
   final Duration timeUse;
 
-  TimeAppDto({required this.appName, required this.timeUse});
+  TimeAppDto({required this.appName, required this.windowTitle, required this.timeUse});
 
   TimeAppDto copyWith({
     String? appName,
+    String? windowTitle,
     Duration? timeUse,
   }) {
     return TimeAppDto(
       appName: appName ?? this.appName,
+      windowTitle: windowTitle ?? this.windowTitle,
       timeUse: timeUse ?? this.timeUse,
     );
   }
 
   @override
   int get hashCode {
-    return timeUse.hashCode^appName.hashCode;
+    return timeUse.hashCode^appName.hashCode^windowTitle.hashCode;
   }
 
   @override
   bool operator ==(Object other) {
-    return other is TimeAppDto && other.timeUse == timeUse && other.appName == appName;
+    return other is TimeAppDto && other.timeUse == timeUse && other.appName == appName && other.windowTitle == windowTitle;
 
   }
 }

@@ -16,7 +16,9 @@
 The plugin enables you to detect periods of user inactivity within your Flutter application. You can customize the inactivity threshold and handle inactivity events according to your needs.
 
 ### Active Window Title Retrieval:
-Provides the ability to retrieve the title of the active window of the operating system. For Mac OS, this is the application name, and for Windows, it's the window title.
+Provides the ability to retrieve the title of the active window of the operating system. 
+- **Windows:** Full window title support.
+- **macOS:** Improved detection using `CGWindowList`. Supports capturing titles for the active process. Requires **Screen Recording** permission for accurate window titles.
 ### Debug Mode
 Enable detailed logs for troubleshooting during development.
 ### Set Custom Idle Threshold
@@ -117,7 +119,8 @@ Adds a listener for changes in the focused window.
   - appName is the name of the executable file (e.g., chrome.exe).
   - windowTitle is the title of the active window (e.g., Flutter Documentation).
 - macOS:
-  - appName and windowTitle are the same and represent the name of the active application (e.g., Safari).
+  - appName is the name of the active application (e.g., Safari).
+  - windowTitle is the title of the active window (if available, otherwise same as appName). May require Screen Recording permission.
 ```dart
 windowFocus.addFocusChangeListener((appWindow) {
   print('Active application: ${appWindow.appName}, Window title: ${appWindow.windowTitle}');

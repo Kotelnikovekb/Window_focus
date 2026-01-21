@@ -1,3 +1,19 @@
+## [1.2.1] - 2026-01-22
+### Changed
+- **macOS Window Titles:**
+    - Improved active window title tracking using `CGWindowListCopyWindowInfo`.
+    - Added periodical (1s) check for window title changes within the same application.
+    - Added fallback to application name if window title is unavailable.
+
+### Fixed
+- **macOS Idle Tracking:**
+    - Fixed issue where user status could get stuck in "idle".
+    - Implemented combined monitoring using system session timers, HID timers, and manual event tracking for maximum reliability.
+- **Example App:**
+    - Fixed idle timeout saving and loading from `UserDefaults` on macOS.
+    - Fixed UI logic for displaying activity status.
+    - Renamed internal state variables for better clarity (`isUserActive` instead of `userIdle`).
+
 ## [1.2.0] - 2026-01-22
 ### Added
 - **Screenshot Capture:**
